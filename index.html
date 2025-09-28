@@ -2356,7 +2356,7 @@
                  } else if (['DNF', 'DNS', 'OCS', 'DSQ'].includes(result.status)) {
                      result.points = dnfScore;
                  } else if (result.status === 'OOD') {
-                     result.points = calculateOODPoints(result.sailNumber, calculated, targetSeries, raceNumberForOOD);
+                     result.points = calculateOODPoints(result.sailNumber, result.skipper, calculated, targetSeries, raceNumberForOOD);
                  } else {
                      result.points = null;
                  }
@@ -2364,8 +2364,8 @@
              return calculated;
          }
 
-        function calculateOODPoints(sailNo, currentRaceCalculatedResults, targetSeries, oodRaceNumber) {
-            const finishersInCurrentRace = currentRaceCalculatedResults.filter(r => r.status === 'finished' && typeof r.points === 'number');
+        function calculateOODPoints(sailNo, skipper, currentRaceCalculatedResults, targetSeries, oodRaceNumber) {
+            const finishersInCurrentRace = currentRaceCalculatedResults.filter(r => (r.sailNumber !== sailNo || r.skipper !== skipper) && r.status === 'finished' && typeof r.points === 'number');
             let oodPointsForThisRace = 0;
 
             if (finishersInCurrentRace.length > 0) {
@@ -2967,11 +2967,46 @@
              headerHTML += `<th>Total</th><th>Net</th></tr>`;
              if(seriesResultsHeader) seriesResultsHeader.innerHTML = headerHTML;
 
-             const competitors = new Map(); let allSailNumbers = new Set(); selectedSeries.races.forEach(r => { if(r.results) r.results.forEach(res => allSailNumbers.add(res.sailNumber)); });
-             allSailNumbers.forEach(sailNo => {
-                 if (!competitors.has(sailNo)) { let lastResult = null; for (let i = selectedSeries.races.length - 1; i >= 0; i--) { const r = selectedSeries.races[i]; if (r.results) { lastResult = r.results.find(res => res.sailNumber === sailNo); if (lastResult) break; } } competitors.set(sailNo, { sailNumber: sailNo, skipper: lastResult?.skipper || 'N/A', boatClass: lastResult?.boatClass || 'N/A', raceScores: new Map(), totalPoints: 0, netPoints: 0, position: 0 }); }
-             });
-             selectedSeries.races.forEach(race => { const raceNum = race.raceNumber; if (race.results && race.results.length > 0) { race.results.forEach(result => { const competitor = competitors.get(result.sailNumber); if(competitor) competitor.raceScores.set(raceNum, { points: result.points, status: result.status.toUpperCase(), position: result.position, discarded: false }); }); } });
+            const competitors = new Map(); // Key: 'sailNumber-skipper', Value: competitor object
+            // Iterate through all results to find unique competitors
+            selectedSeries.races.forEach(race => {
+                if (race.results) {
+                    race.results.forEach(res => {
+                        const compositeKey = `${res.sailNumber}-${res.skipper}`;
+                        if (!competitors.has(compositeKey)) {
+                            competitors.set(compositeKey, {
+                                sailNumber: res.sailNumber,
+                                skipper: res.skipper,
+                                boatClass: res.boatClass,
+                                raceScores: new Map(),
+                                totalPoints: 0, netPoints: 0, position: 0
+                            });
+                        }
+                        // Update boatClass with the latest one found for this competitor
+                        const competitorEntry = competitors.get(compositeKey);
+                        competitorEntry.boatClass = res.boatClass;
+                    });
+                }
+            });
+
+            // Populate race scores for each competitor.
+            selectedSeries.races.forEach(race => {
+                const raceNum = race.raceNumber;
+                if (race.results && race.results.length > 0) {
+                    race.results.forEach(result => {
+                        const compositeKey = `${result.sailNumber}-${result.skipper}`;
+                        const competitor = competitors.get(compositeKey);
+                        if (competitor) {
+                            competitor.raceScores.set(raceNum, {
+                                points: result.points,
+                                status: result.status.toUpperCase(),
+                                position: result.position,
+                                discarded: false
+                            });
+                        }
+                    });
+                }
+            });
 
              competitors.forEach(competitor => {
                   competitor.raceScores.forEach(score => { if (score) score.discarded = false; });
@@ -2989,7 +3024,7 @@
                       } else {
                           const score = competitor.raceScores.get(raceNum);
                           if (score.status === 'OOD') {
-                              score.points = calculateOODPointsSeriesContext(competitor.sailNumber, raceNum, selectedSeries, competitors);
+                              score.points = calculateOODPointsSeriesContext(competitor.sailNumber, competitor.skipper, raceNum, selectedSeries, competitors);
                               competitor.raceScores.set(raceNum, score);
                           }
                       }
@@ -3047,7 +3082,9 @@
                          return discardedA_scores[0] - discardedB_scores[0];
                      }
                  }
-                 return a.sailNumber.localeCompare(b.sailNumber, undefined, { numeric: true });
+                const sailCompare = a.sailNumber.localeCompare(b.sailNumber, undefined, { numeric: true });
+                if (sailCompare !== 0) return sailCompare;
+                return a.skipper.localeCompare(b.skipper);
              });
 
              let currentRank = 0; let currentPosition = 0;
@@ -3081,7 +3118,9 @@
                     const discardedB_s = Array.from(boatB.raceScores.values()).filter(s => s && s.discarded && s.points !== null && !isNaN(s.points)).map(s => s.points).sort((x, y) => x - y);
                     if (discardedA_s.length > 0 && discardedB_s.length > 0 && discardedA_s[0] !== discardedB_s[0]) return true;
                  }
-                 if (boatA.sailNumber.localeCompare(boatB.sailNumber, undefined, { numeric: true }) !== 0) return true;
+                 const sailComp = boatA.sailNumber.localeCompare(boatB.sailNumber, undefined, { numeric: true });
+                 if (sailComp !== 0) return true;
+                 if (boatA.skipper.localeCompare(boatB.skipper) !== 0) return true;
                  return false;
               }
 
@@ -3106,14 +3145,14 @@
              }
         }
 
-        function calculateOODPointsSeriesContext(sailNo, oodRaceNumber, seriesData, competitorMap) {
+        function calculateOODPointsSeriesContext(sailNo, skipper, oodRaceNumber, seriesData, competitorMap) {
              const oodRaceData = seriesData.races.find(r => r.raceNumber === oodRaceNumber);
              let oodPointsForThisRace = 0;
              let finisherPointsInOODRace = [];
 
              if (oodRaceData && oodRaceData.results) {
                   oodRaceData.results.forEach(result => {
-                      if (result.sailNumber !== sailNo && result.status === 'finished') {
+                      if ((result.sailNumber !== sailNo || result.skipper !== skipper) && result.status === 'finished') {
                            if (result.points != null && !isNaN(result.points)) {
                                finisherPointsInOODRace.push(result.points);
                            }
