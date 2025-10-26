@@ -3048,7 +3048,7 @@
                 return;
             }
 
-            const allDivisionsInSeries = [...new Set(racesWithResults.flatMap(r => r.results.map(res => res.division || '1')))].sort();
+            const allDivisionsInSeries = [...new Set(racesWithResults.flatMap(r => r.results.map(res => String(res.division || '1'))))].sort();
 
             allDivisionsInSeries.forEach(division => {
                 const header = document.createElement('h2');
@@ -4011,3 +4011,4 @@
     </script>
 </body>
 </html>
+
