@@ -706,6 +706,7 @@
                          <option value="">-- Select a Division --</option>
                          <option value="1">Div 1 - Catamarans</option>
                          <option value="2">Div 2 - Monohulls</option>
+                         <option value="3">Div 3 - Novice</option>
                      </select>
                  </div>
                  <input type="hidden" id="editing-boat-id" value="">
@@ -1566,7 +1567,7 @@
         }
 
 
-        // --- Race Entry Functions ---
+        // --- Race Entry ---
         function populateSavedBoatDropdown() {
             if (!selectSavedBoat) return;
             const currentVal = selectSavedBoat.value;
@@ -1912,7 +1913,7 @@
                     .map(s => `<option value="${s}" ${entry.status === s ? 'selected' : ''}>${s === '' ? '-- Select --' : s.toUpperCase()}</option>`)
                     .join('');
 
-                const divisionOptions = ['1', '2']
+                const divisionOptions = ['1', '2', '3']
                     .map(d => `<option value="${d}" ${entry.division == d ? 'selected' : ''}>${d}</option>`)
                     .join('');
 
@@ -1981,7 +1982,7 @@
             entries.forEach((entry, index) => {
                 const row = shortCoursePoolBody.insertRow();
                 
-                const divisionOptions = ['1', '2']
+                const divisionOptions = ['1', '2', '3']
                     .map(d => `<option value="${d}" ${entry.division == d ? 'selected' : ''}>${d}</option>`)
                     .join('');
 
@@ -2265,7 +2266,7 @@
                         .map(s => `<option value="${s}" ${entry.status === s ? 'selected' : ''}>${s === '' ? '-- Select --' : s.toUpperCase()}</option>`)
                         .join('');
 
-                    const divisionOptions = ['1', '2']
+                    const divisionOptions = ['1', '2', '3']
                         .map(d => `<option value="${d}" ${entry.division == d ? 'selected' : ''}>${d}</option>`)
                         .join('');
 
@@ -2991,18 +2992,18 @@
                     if (isShortCourse) {
                          existingSeries.numberOfRaces = existingSeries.races.length;
                     } else {
-                        const oldNumberOfRaces = existingSeries.numberOfRaces;
+                        const oldNotice = existingSeries.numberOfRaces;
                         existingSeries.numberOfRaces = racesPlanned;
-                         if (racesPlanned > oldNumberOfRaces) {
-                            for (let i = oldNumberOfRaces + 1; i <= racesPlanned; i++) {
+                         if (racesPlanned > oldNotice) {
+                            for (let i = oldNotice + 1; i <= racesPlanned; i++) {
                                 existingSeries.races.push({ raceNumber: i, date: null, entries: [], results: [], startTime: null });
                             }
-                        } else if (racesPlanned < oldNumberOfRaces) {
+                        } else if (racesPlanned < oldNotice) {
                              const racesToRemove = existingSeries.races.slice(racesPlanned);
                              const hasResultsInRemoved = racesToRemove.some(r => r.results && r.results.length > 0);
                              if (hasResultsInRemoved && !confirm(`Reducing races will remove races from Race ${racesPlanned + 1} onwards, including any saved results for them. Continue?`)) {
-                                 if (numberOfRaces) numberOfRaces.value = oldNumberOfRaces;
-                                 existingSeries.numberOfRaces = oldNumberOfRaces;
+                                 if (numberOfRaces) numberOfRaces.value = oldNotice;
+                                 existingSeries.numberOfRaces = oldNotice;
                                  return;
                              }
                              existingSeries.races = existingSeries.races.slice(0, racesPlanned);
@@ -4280,7 +4281,7 @@
                                         const seconds = timeToSeconds(standardizedElapsedTime);
                                         if (seconds >= 0) standardizedElapsedTime = secondsToTime(seconds);
                                     }
-                                    return {...entry, elapsedTime: standardizedElapsedTime, savedBoatId: entry.savedBoatId || null, yardstick: entry.yardstick || boatFromList?.yardstick || 100, division: entry.division || boatFromList?.division };
+                                    return {...entry, elapsedTime: standardizedElapsedTime, savedBoatId: item.savedBoatId || null, yardstick: entry.yardstick || boatFromList?.yardstick || 100, division: entry.division || boatFromList?.division };
                                 });
 
                                 r.entries = mapEntriesForImport(r.entries);
@@ -4298,7 +4299,7 @@
                                 if (s.races.length !== expectedNumRaces) {
                                    console.warn(`JSON Import: Fixing race structure for standard series "${s.name}". Expected ${expectedNumRaces}, found ${s.races.length}.`);
                                    let existingRacesData = new Map();
-                                   s.races.forEach(r_item => { if (r_item && typeof r_item.raceNumber ==='number') existingRacesData.set(r_item.raceNumber, r_item); });
+                                   s.races.forEach(r_item => { if (r_item && typeof r_item.raceNumber === 'number') existingRacesData.set(r_item.raceNumber, r_item); });
                                    let reconciledRaces = [];
                                    for (let i_race = 1; i_race <= expectedNumRaces; i_race++) {
                                        const existing = existingRacesData.get(i_race);
