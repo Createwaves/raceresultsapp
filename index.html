@@ -425,8 +425,6 @@
             color: #003366;
         }
         #bulk-boat-list-container {
-            max-height: 300px; /* Limit height and make scrollable */
-            overflow-y: auto;
             border: 1px solid #ddd;
             padding: 10px;
             background-color: white;
@@ -638,6 +636,13 @@
                 </div>
 
                 <input type="hidden" id="edit-series-id">
+                <div id="series-archive-group" class="hidden" style="margin-top:15px; padding:12px; background:#fff3cd; border:1px solid #ffeeba; border-radius:4px;">
+                    <div class="checkbox-group" style="margin-bottom:4px;">
+                        <input type="checkbox" id="series-archived">
+                        <label for="series-archived" style="font-weight:bold;">Archive this series</label>
+                    </div>
+                    <small style="color:#856404;">⚠ Do not archive until series is complete</small>
+                </div>
                 <div class="entry-buttons">
                     <button id="save-series-btn">Save Series</button>
                     <button id="cancel-series-btn" class="btn-secondary">Cancel</button>
@@ -669,8 +674,13 @@
         <div id="boat-list-tab" class="tab-content">
              <div class="series-header">
                 <h2>Manage Boat List</h2>
-                <button id="show-add-boat-form-btn">Add New Boat</button>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <button id="change-divs-btn">Change Divs</button>
+                    <button id="show-add-boat-form-btn">Add New Boat</button>
+                </div>
             </div>
+            <!-- Change Divs validation message -->
+            <div id="change-divs-error" class="hidden" style="background:#fff3cd;border:1px solid #ffeeba;color:#856404;padding:8px 12px;border-radius:4px;margin-bottom:10px;font-weight:bold;"></div>
              <div id="boat-list-form" class="entry-form hidden"> <!-- Start hidden -->
                  <h3 id="boat-form-title">Add New Boat</h3>
                  <div class="form-group">
@@ -807,6 +817,7 @@
                 </div>
                 <div class="bulk-add-actions action-buttons">
                     <button id="btn-add-selected-boats">Add Selected to Race/Pool</button>
+                    <button id="btn-remove-selected-boats" class="btn-secondary">Close Bulk Entry</button>
                     <!-- Select All / Deselect All buttons removed -->
                 </div>
             </div>
@@ -866,7 +877,13 @@
                 </div>
                 <div style="overflow-x: auto;">
                     <table id="entries-table">
-                        <thead><tr><th>Sail #</th><th>Boat Class</th><th>Skipper</th><th>Yardstick</th><th>Div</th><th>Status</th><th>Elapsed Time</th><th>Actions</th></tr></thead>
+                        <thead><tr>
+                            <th style="cursor:pointer;user-select:none;" onclick="setEntriesSort('sail')" id="th-sail">Sail # <span id="sort-icon-sail"></span></th>
+                            <th style="cursor:pointer;user-select:none;" onclick="setEntriesSort('class')" id="th-class">Boat Class <span id="sort-icon-class"></span></th>
+                            <th style="cursor:pointer;user-select:none;" onclick="setEntriesSort('skipper')" id="th-skipper">Skipper <span id="sort-icon-skipper"></span></th>
+                            <th style="cursor:pointer;user-select:none;" onclick="setEntriesSort('yardstick')" id="th-yardstick">Yardstick <span id="sort-icon-yardstick"></span></th>
+                            <th>Div</th><th>Status</th><th>Elapsed Time</th><th>Actions</th>
+                        </tr></thead>
                         <tbody id="entries-body"></tbody>
                     </table>
                 </div>
@@ -958,7 +975,7 @@
     </div>
 
     <script>
-        const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyVlXo44Igm5Nr575KOxetfskKE6hWL_2Gox_DXfIdgpXATvimb4qkyOQ1_iTR30Sxu0w/exec';
+        const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxOlDodRAojpQVEB2Qlhdiw0kvO142WqSbaZ2ldLaPo2IZSZqtfXdbVdmykWizqVGsq/exec';
 
         // Yardstick data (still needed for dropdowns)
         const yardstickData = [
@@ -1121,6 +1138,7 @@
         const bulkAddBoatsSection = document.getElementById('bulk-add-boats-section');
         const bulkBoatListContainer = document.getElementById('bulk-boat-list-container');
         const btnAddSelectedBoats = document.getElementById('btn-add-selected-boats');
+        const btnRemoveSelectedBoats = document.getElementById('btn-remove-selected-boats');
 
         // --- Single Entry Toggle ---
         const useSingleEntryCheckbox = document.getElementById('use-single-entry-checkbox');
@@ -1367,6 +1385,10 @@
         }
 
         // --- Boat List Functions ---
+        let changeDivsMode = false;
+        // Stores pending division changes during Change Divs mode: { boatId -> divValue }
+        let pendingDivChanges = {};
+
         function renderBoatListTable() {
             if (!boatListBody) return;
             boatListBody.innerHTML = '';
@@ -1378,7 +1400,6 @@
                 return a.boatClass.localeCompare(b.boatClass);
             });
 
-
              if (boatList.length === 0) {
                   const row = boatListBody.insertRow();
                   const cell = row.insertCell(); cell.colSpan = 6;
@@ -1387,22 +1408,54 @@
              } else {
                 boatList.forEach(boat => {
                     const row = boatListBody.insertRow();
-                    row.innerHTML = `
-                        <td>${boat.sailNumber}</td>
-                        <td>${boat.boatClass}</td>
-                        <td>${boat.skipper}</td>
-                        <td>${boat.yardstick}</td>
-                        <td>${boat.division}</td>
-                        <td class="actions">
-                            <button class="btn-edit" onclick="editBoatInList(${boat.id})">Edit</button>
-                            <button class="btn-danger" onclick="deleteBoatFromList(${boat.id})">Delete</button>
-                        </td>
-                    `;
+                    if (changeDivsMode) {
+                        // In Change Divs mode, show checkboxes for divs 1, 2, 3
+                        const currentDiv = String(pendingDivChanges[boat.id] !== undefined ? pendingDivChanges[boat.id] : (boat.division || ''));
+                        const divCellHtml = [1,2,3].map(d => {
+                            const checked = currentDiv === String(d) ? 'checked' : '';
+                            const highlightStyle = currentDiv === String(d) ? 'background:#28a745;color:white;border-radius:3px;padding:2px 6px;font-weight:bold;' : 'background:#f2f2f2;border-radius:3px;padding:2px 6px;';
+                            return `<label style="cursor:pointer;margin-right:4px;display:inline-flex;align-items:center;gap:3px;${highlightStyle}">
+                                <input type="checkbox" data-boat-id="${boat.id}" data-div="${d}" ${checked}
+                                    style="width:auto;margin:0;cursor:pointer;"
+                                    onchange="handleDivCheckboxChange(event, ${boat.id}, ${d})"> ${d}
+                            </label>`;
+                        }).join('');
+                        row.innerHTML = `
+                            <td>${boat.sailNumber}</td>
+                            <td>${boat.boatClass}</td>
+                            <td>${boat.skipper}</td>
+                            <td>${boat.yardstick}</td>
+                            <td>${divCellHtml}</td>
+                            <td class="actions">
+                                <button class="btn-edit" onclick="editBoatInList(${boat.id})">Edit</button>
+                                <button class="btn-danger" onclick="deleteBoatFromList(${boat.id})">Delete</button>
+                            </td>
+                        `;
+                    } else {
+                        row.innerHTML = `
+                            <td>${boat.sailNumber}</td>
+                            <td>${boat.boatClass}</td>
+                            <td>${boat.skipper}</td>
+                            <td>${boat.yardstick}</td>
+                            <td>${boat.division}</td>
+                            <td class="actions">
+                                <button class="btn-edit" onclick="editBoatInList(${boat.id})">Edit</button>
+                                <button class="btn-danger" onclick="deleteBoatFromList(${boat.id})">Delete</button>
+                            </td>
+                        `;
+                    }
                 });
             }
             populateSavedBoatDropdown();
             updateBulkAddSectionVisibility();
         }
+
+        window.handleDivCheckboxChange = function(event, boatId, divNum) {
+            // Only allow one div to be selected at a time (radio-checkbox behaviour)
+            pendingDivChanges[boatId] = String(divNum);
+            // Re-render just this row's div cell to update highlighting
+            renderBoatListTable();
+        };
         function clearBoatListForm() {
             if (!boatListForm) return;
             if(boatSailNumber) boatSailNumber.value = '';
@@ -1429,6 +1482,54 @@
             if(boatSailNumber) boatSailNumber.focus();
         });
         if(cancelBoatListBtn) cancelBoatListBtn.addEventListener('click', clearBoatListForm);
+
+        // --- Change Divs Button Logic ---
+        const changeDivsBtn = document.getElementById('change-divs-btn');
+        const changeDivsError = document.getElementById('change-divs-error');
+
+        if (changeDivsBtn) {
+            changeDivsBtn.addEventListener('click', () => {
+                if (!changeDivsMode) {
+                    // Enter Change Divs mode
+                    changeDivsMode = true;
+                    pendingDivChanges = {};
+                    // Pre-populate pending from current boat divisions
+                    boatList.forEach(b => { pendingDivChanges[b.id] = String(b.division || ''); });
+                    changeDivsBtn.textContent = 'Save Divs';
+                    changeDivsBtn.style.backgroundColor = '#dc3545';
+                    changeDivsBtn.onmouseover = () => changeDivsBtn.style.backgroundColor = '#c82333';
+                    changeDivsBtn.onmouseout = () => changeDivsBtn.style.backgroundColor = '#dc3545';
+                    if (changeDivsError) changeDivsError.classList.add('hidden');
+                    renderBoatListTable();
+                } else {
+                    // Save — validate every boat has a div selected
+                    const missingBoats = boatList.filter(b => !pendingDivChanges[b.id] || pendingDivChanges[b.id] === '');
+                    if (missingBoats.length > 0) {
+                        const names = missingBoats.map(b => `${b.sailNumber} (${b.skipper})`).join(', ');
+                        if (changeDivsError) {
+                            changeDivsError.textContent = `⚠ Please select a division for: ${names}`;
+                            changeDivsError.classList.remove('hidden');
+                        }
+                        return;
+                    }
+                    // Apply changes
+                    boatList.forEach(b => {
+                        if (pendingDivChanges[b.id] !== undefined) {
+                            b.division = pendingDivChanges[b.id];
+                        }
+                    });
+                    changeDivsMode = false;
+                    pendingDivChanges = {};
+                    changeDivsBtn.textContent = 'Change Divs';
+                    changeDivsBtn.style.backgroundColor = '';
+                    changeDivsBtn.onmouseover = null;
+                    changeDivsBtn.onmouseout = null;
+                    if (changeDivsError) changeDivsError.classList.add('hidden');
+                    triggerSave();
+                    renderBoatListTable();
+                }
+            });
+        }
 
         if (saveBoatListBtn) saveBoatListBtn.addEventListener('click', () => {
             const idString = editingBoatId?.value;
@@ -1894,18 +1995,75 @@
         }
 
 
+        let entriesSortKey = 'sail';
+        let entriesSortAsc = true;
+
+        window.setEntriesSort = function(key) {
+            if (entriesSortKey === key) { entriesSortAsc = !entriesSortAsc; }
+            else { entriesSortKey = key; entriesSortAsc = true; }
+            renderEntriesTable();
+        };
+
+        function getSortedEntries() {
+            const isNumericSail = s => /^\d/.test(String(s.sailNumber || '').trim());
+            return [...entries].sort((a, b) => {
+                // OOD always at the bottom
+                const aOOD = a.status === 'OOD', bOOD = b.status === 'OOD';
+                if (aOOD && !bOOD) return 1;
+                if (!aOOD && bOOD) return -1;
+
+                let valA, valB;
+                if (entriesSortKey === 'sail') {
+                    // Non-numeric sail numbers (club boats) always go to the bottom
+                    const aNum = isNumericSail(a), bNum = isNumericSail(b);
+                    if (aNum && !bNum) return -1;
+                    if (!aNum && bNum) return 1;
+                    if (aNum && bNum) {
+                        const diff = parseInt(a.sailNumber) - parseInt(b.sailNumber);
+                        return entriesSortAsc ? diff : -diff;
+                    }
+                    // Both non-numeric: sort alphabetically
+                    const r = String(a.sailNumber).localeCompare(String(b.sailNumber));
+                    return entriesSortAsc ? r : -r;
+                }
+                if (entriesSortKey === 'class')    { valA = a.boatClass || ''; valB = b.boatClass || ''; }
+                if (entriesSortKey === 'skipper')  { valA = a.skipper || '';   valB = b.skipper || ''; }
+                if (entriesSortKey === 'yardstick'){ valA = parseFloat(a.yardstick) || 0; valB = parseFloat(b.yardstick) || 0;
+                    return entriesSortAsc ? valA - valB : valB - valA; }
+                const r = String(valA).localeCompare(String(valB));
+                return entriesSortAsc ? r : -r;
+            });
+        }
+
+        function updateSortIcons() {
+            ['sail','class','skipper','yardstick'].forEach(key => {
+                const el = document.getElementById(`sort-icon-${key}`);
+                if (el) el.textContent = entriesSortKey === key ? (entriesSortAsc ? ' ▲' : ' ▼') : ' ⇅';
+            });
+        }
+
         function renderEntriesTable() {
             if (!entriesBody) return;
             entriesBody.innerHTML = '';
              const raceNumText = currentRace ? ` Race ${currentRace}` : '';
-             if(currentEntriesHeading) currentEntriesHeading.textContent = `Entries${raceNumText}`;
+             if(currentEntriesHeading) {
+                 const boatCount = entries.length;
+                 const seriesName = currentSeries ? currentSeries.name : '';
+                 if (boatCount > 0 && seriesName && currentRace) {
+                     currentEntriesHeading.textContent = `${boatCount} ${boatCount === 1 ? 'Boat' : 'Boats'} Entered for ${seriesName}${raceNumText}`;
+                 } else {
+                     currentEntriesHeading.textContent = `Entries${raceNumText}`;
+                 }
+             }
+            updateSortIcons();
 
             if (entries.length === 0) {
                 const row = entriesBody.insertRow(); const cell = row.insertCell();
                 cell.colSpan = 8; cell.textContent = currentRace ? 'No entries added yet for this race.' : 'Select a race to view/add entries.';
                 cell.style.textAlign = 'center'; cell.style.fontStyle = 'italic'; cell.style.color = '#666'; return;
             }
-            entries.forEach((entry, index) => {
+            getSortedEntries().forEach((entry, displayIndex) => {
+                const index = entries.indexOf(entry); // original index for all data operations
                 const row = entriesBody.insertRow();
                 row.dataset.entryIndex = index;
 
@@ -2413,8 +2571,12 @@
         
             // --- Validation and Update Logic ---
             // The status is already up-to-date in the 'entry' object because the dropdown's onchange handler updated the model.
-            if (entry.status === 'finished') {
-                // If status is 'finished', we MUST have a valid time.
+            if (timeValue !== '' && isValidTimeFormat(timeValue)) {
+                // A valid time has been entered — always treat as finished regardless of status dropdown
+                entry.status = 'finished';
+                entry.elapsedTime = timeValue;
+            } else if (entry.status === 'finished') {
+                // Status is finished but no valid time given
                 if (timeValue === '') {
                     alert("Elapsed time is required for 'Finished' status. Please enter a time.");
                     return;
@@ -2423,10 +2585,8 @@
                     alert(`Invalid time format: "${timeValue}". Please use h:m:s, h m s, m:s, or m s.`);
                     return;
                 }
-                // If valid, update the entry's time from the input.
-                entry.elapsedTime = timeValue;
             } else {
-                // For any other status (DNF, DNS, OOD, '', etc.), ensure the time is empty.
+                // No time entered, non-finished status — clear any time
                 entry.elapsedTime = '';
             }
         
@@ -2958,6 +3118,11 @@
             if(numberOfRaces) numberOfRaces.value = '8';
             if(racesPerDiscardInput) racesPerDiscardInput.value = '4';
             if(editSeriesId) editSeriesId.value = '';
+            // Hide archive checkbox for new series
+            const archiveGroup = document.getElementById('series-archive-group');
+            const archivedCheckbox = document.getElementById('series-archived');
+            if (archiveGroup) archiveGroup.classList.add('hidden');
+            if (archivedCheckbox) archivedCheckbox.checked = false;
             if(createSeriesForm) createSeriesForm.classList.remove('hidden');
         });
 
@@ -2988,6 +3153,7 @@
                     existingSeries.isShortCourse = isShortCourse;
                     existingSeries.shortCourseSingleDiscardAfter5Races = false;
                     existingSeries.discardThreshold = discardThreshold;
+                    existingSeries.isArchived = document.getElementById('series-archived')?.checked || false;
 
                     if (isShortCourse) {
                          existingSeries.numberOfRaces = existingSeries.races.length;
@@ -3069,13 +3235,14 @@
 
 
                 seriesCard.innerHTML = `
-                    <div class="race-info"><h3>${s.name}</h3></div>
+                    <div class="race-info"><h3>${s.name}${s.isArchived ? ' <span style="font-size:12px;background:#6c757d;color:white;border-radius:3px;padding:2px 7px;vertical-align:middle;font-weight:normal;">Archived</span>' : ''}</h3></div>
                     <p class="series-card-details">${detailsArr.join(' | ')}</p>
                     <div class="race-actions">
                         <button class="btn-edit" onclick="editSeries(${s.id})">Edit</button>
                         <button class="btn-secondary" onclick="exportSingleSeries(${s.id})">Export</button>
                         <button class="btn-danger" onclick="deleteSeries(${s.id})">Del</button>
                     </div>`;
+                if (s.isArchived) seriesCard.style.opacity = '0.65';
                 seriesList.appendChild(seriesCard);
             });
         }
@@ -3095,6 +3262,12 @@
             if(racesPerDiscardInput) racesPerDiscardInput.value = s.discardThreshold ?? 0;
 
             if(editSeriesId) editSeriesId.value = s.id;
+
+            // Show archive checkbox only when editing an existing series
+            const archiveGroup = document.getElementById('series-archive-group');
+            const archivedCheckbox = document.getElementById('series-archived');
+            if (archiveGroup) archiveGroup.classList.remove('hidden');
+            if (archivedCheckbox) archivedCheckbox.checked = s.isArchived || false;
 
             if(createSeriesForm) {
                 createSeriesForm.classList.remove('hidden');
@@ -3125,8 +3298,8 @@
              dropdowns.forEach((dropdown) => {
                  if (!dropdown) return; const selectedVal = dropdown.value; dropdown.innerHTML = '<option value="">Select Series</option>';
                  series.sort((a, b) => a.name.localeCompare(b.name));
-                 series.forEach(s => { const option = document.createElement('option'); option.value = s.id; option.textContent = s.name + (s.isShortCourse ? ' (Short Course)' : ''); dropdown.appendChild(option); });
-                 if (selectedVal && series.some(s => s.id == selectedVal)) dropdown.value = selectedVal; else dropdown.value = "";
+                 series.filter(s => !s.isArchived).forEach(s => { const option = document.createElement('option'); option.value = s.id; option.textContent = s.name + (s.isShortCourse ? ' (Short Course)' : ''); dropdown.appendChild(option); });
+                 if (selectedVal && series.some(s => s.id == selectedVal && !s.isArchived)) dropdown.value = selectedVal; else dropdown.value = "";
              });
              setTimeout(() => {
                 if (raceTab?.classList.contains('active-tab')) updateRaceEntryUI();
@@ -4104,6 +4277,7 @@
                             s.shortCourseSingleDiscardAfter5Races = false;
                             s.numberOfRaces = typeof s.numberOfRaces === 'number' ? s.numberOfRaces : (s.isShortCourse ? s.races.length : 0);
                             s.discardThreshold = typeof s.discardThreshold === 'number' ? s.discardThreshold : 0;
+                            s.isArchived = s.isArchived === true;
                             delete s.dncScoringRule; // Remove obsolete property
 
 
@@ -4293,6 +4467,7 @@
                             s.shortCourseSingleDiscardAfter5Races = false;
                             s.numberOfRaces = typeof s.numberOfRaces === 'number' ? s.numberOfRaces : (s.isShortCourse ? s.races.length : 0);
                             s.discardThreshold = typeof s.discardThreshold === 'number' ? s.discardThreshold : 0;
+                            s.isArchived = s.isArchived === true;
                             delete s.dncScoringRule;
                              if (!s.isShortCourse) {
                                 const expectedNumRaces = s.numberOfRaces || 0;
@@ -4617,6 +4792,10 @@
             if (importBoatListBtn && importBoatListFileInput) { importBoatListBtn.addEventListener('click', () => importBoatListFileInput.click()); importBoatListFileInput.addEventListener('change', importBoatList); }
 
             if(useBulkEntryCheckbox) useBulkEntryCheckbox.addEventListener('change', updateBulkAddSectionVisibility);
+            if(btnRemoveSelectedBoats) btnRemoveSelectedBoats.addEventListener('click', () => {
+                if(useBulkEntryCheckbox) useBulkEntryCheckbox.checked = false;
+                updateBulkAddSectionVisibility();
+            });
             if(useSingleEntryCheckbox && singleEntryForm) {
                 useSingleEntryCheckbox.addEventListener('change', () => {
                     singleEntryForm.classList.toggle('hidden', !useSingleEntryCheckbox.checked);
