@@ -610,7 +610,7 @@
 
         <!-- Series Management Tab -->
         <div id="series-tab" class="tab-content active-tab">
-            <div class="series-header"><h2>Series Management</h2><button id="create-series-btn">Create New Series</button></div>
+            <div class="series-header"><h2>Series Management</h2><div style="display:flex;gap:8px;"><button id="toggle-archived-series-btn" class="btn-secondary">Show Archived</button><button id="create-series-btn">Create New Series</button></div></div>
             <!-- Series Create/Edit Form -->
             <div id="create-series-form" class="entry-form hidden"> <!-- Start hidden -->
                 <h3>Create/Edit Series</h3>
@@ -1277,11 +1277,22 @@
             });
         }
 
+        function syncShortCourseStartTimesToSeries() {
+            if (!currentSeries?.isShortCourse) return;
+            shortCourseSessionRaces.forEach(sessionRace => {
+                const savedRace = currentSeries.races.find(r => r.raceNumber === sessionRace.raceNumber);
+                if (savedRace) {
+                    savedRace.startTime = sessionRace.startTime;
+                }
+            });
+        }
+
         function handleStartRace(event, scRaceIndex = -1) {
             if (scRaceIndex !== -1) {
                 const raceData = shortCourseSessionRaces[scRaceIndex];
                 if (raceData) {
                     raceData.startTime = Date.now();
+                    syncShortCourseStartTimesToSeries();
                     renderShortCourseSessionRaces();
                     triggerSave();
                 }
@@ -1302,6 +1313,7 @@
                 const raceData = shortCourseSessionRaces[scRaceIndex];
                 if (raceData) {
                     raceData.startTime = Date.now() + threeMinutes;
+                    syncShortCourseStartTimesToSeries();
                     renderShortCourseSessionRaces();
                     triggerSave();
                 }
@@ -1321,6 +1333,7 @@
                     const raceData = shortCourseSessionRaces[scRaceIndex];
                     if (raceData) {
                         raceData.startTime = null;
+                        syncShortCourseStartTimesToSeries();
                         renderShortCourseSessionRaces();
                         triggerSave();
                     }
@@ -3111,6 +3124,14 @@
             if (numberOfRacesGroup) numberOfRacesGroup.classList.toggle('hidden', isChecked);
         });
 
+        const toggleArchivedSeriesBtn = document.getElementById('toggle-archived-series-btn');
+        if (toggleArchivedSeriesBtn) {
+            toggleArchivedSeriesBtn.addEventListener('click', () => {
+                showArchivedSeries = !showArchivedSeries;
+                refreshSeriesList();
+            });
+        }
+
         if(createSeriesBtn) createSeriesBtn.addEventListener('click', () => {
             if(seriesName) seriesName.value = '';
             if(seriesShortCourseCheck) seriesShortCourseCheck.checked = false;
@@ -3204,47 +3225,60 @@
 
         if(cancelSeriesBtn) cancelSeriesBtn.addEventListener('click', () => { if(createSeriesForm) createSeriesForm.classList.add('hidden'); });
 
+        let showArchivedSeries = false;
+
         function refreshSeriesList() {
             if (!seriesList) return;
             seriesList.innerHTML = '';
+
+            const toggleBtn = document.getElementById('toggle-archived-series-btn');
+            const visibleSeries = series.filter(s => showArchivedSeries ? s.isArchived : !s.isArchived);
+
             if (series.length === 0) {
                 seriesList.innerHTML = '<p>No series defined. Create one first.</p>';
-                return;
+            } else if (visibleSeries.length === 0) {
+                seriesList.innerHTML = showArchivedSeries
+                    ? '<p>No archived series.</p>'
+                    : '<p>No active series. Create one or check archived series.</p>';
+            } else {
+                visibleSeries.forEach(s => {
+                    const seriesCard = document.createElement('div');
+                    seriesCard.classList.add('race-card');
+
+                    const racesWithResults = s.races.filter(race => race.results && race.results.length > 0).length;
+                    const seriesType = s.isShortCourse ? 'Short Course' : 'Standard';
+                    const currentDiscardThreshold = s.discardThreshold ?? 0;
+                    const discardTextToDisplay = currentDiscardThreshold > 0 ? `1 per ${currentDiscardThreshold} completed` : 'No discards';
+
+                    let detailsArr = [];
+                    detailsArr.push(`<strong>Type:</strong> ${seriesType}`);
+                    if (s.isShortCourse) {
+                        detailsArr.push(`<strong>Races Saved:</strong> ${s.races.length}`);
+                    } else {
+                        detailsArr.push(`<strong>Races:</strong> ${s.numberOfRaces} planned (${racesWithResults} done)`);
+                    }
+                    detailsArr.push(`<strong>Discards:</strong> ${discardTextToDisplay}`);
+
+                    seriesCard.innerHTML = `
+                        <div class="race-info"><h3>${s.name}${s.isArchived ? ' <span style="font-size:12px;background:#6c757d;color:white;border-radius:3px;padding:2px 7px;vertical-align:middle;font-weight:normal;">Archived</span>' : ''}</h3></div>
+                        <p class="series-card-details">${detailsArr.join(' | ')}</p>
+                        <div class="race-actions">
+                            <button class="btn-edit" onclick="editSeries(${s.id})">Edit</button>
+                            <button class="btn-secondary" onclick="exportSingleSeries(${s.id})">Export</button>
+                            <button class="btn-danger" onclick="deleteSeries(${s.id})">Del</button>
+                        </div>`;
+                    seriesList.appendChild(seriesCard);
+                });
             }
-            series.forEach(s => {
-                const seriesCard = document.createElement('div');
-                seriesCard.classList.add('race-card');
 
-                const racesWithResults = s.races.filter(race => race.results && race.results.length > 0).length;
-
-                const seriesType = s.isShortCourse ? 'Short Course' : 'Standard';
-                let discardTextToDisplay = '';
-                const currentDiscardThreshold = s.discardThreshold ?? 0;
-                discardTextToDisplay = currentDiscardThreshold > 0 ? `1 per ${currentDiscardThreshold} completed` : 'No discards';
-
-
-                let detailsArr = [];
-                detailsArr.push(`<strong>Type:</strong> ${seriesType}`);
-
-                if (s.isShortCourse) {
-                    detailsArr.push(`<strong>Races Saved:</strong> ${s.races.length}`);
-                } else {
-                    detailsArr.push(`<strong>Races:</strong> ${s.numberOfRaces} planned (${racesWithResults} done)`);
-                }
-                detailsArr.push(`<strong>Discards:</strong> ${discardTextToDisplay}`);
-
-
-                seriesCard.innerHTML = `
-                    <div class="race-info"><h3>${s.name}${s.isArchived ? ' <span style="font-size:12px;background:#6c757d;color:white;border-radius:3px;padding:2px 7px;vertical-align:middle;font-weight:normal;">Archived</span>' : ''}</h3></div>
-                    <p class="series-card-details">${detailsArr.join(' | ')}</p>
-                    <div class="race-actions">
-                        <button class="btn-edit" onclick="editSeries(${s.id})">Edit</button>
-                        <button class="btn-secondary" onclick="exportSingleSeries(${s.id})">Export</button>
-                        <button class="btn-danger" onclick="deleteSeries(${s.id})">Del</button>
-                    </div>`;
-                if (s.isArchived) seriesCard.style.opacity = '0.65';
-                seriesList.appendChild(seriesCard);
-            });
+            // Update toggle button label
+            if (toggleBtn) {
+                const archivedCount = series.filter(s => s.isArchived).length;
+                toggleBtn.textContent = showArchivedSeries
+                    ? '← Back to Active'
+                    : `Show Archived (${archivedCount})`;
+                toggleBtn.style.display = archivedCount === 0 && !showArchivedSeries ? 'none' : '';
+            }
         }
 
         function editSeries(id) {
