@@ -1335,6 +1335,16 @@
         function secondsToTime(seconds) { if (isNaN(seconds) || seconds === null || seconds < 0) return ''; seconds = Math.round(seconds); const hours = Math.floor(seconds / 3600); let minutes = Math.floor((seconds % 3600) / 60); let secs = seconds % 60; if (secs === 60) { minutes += 1; secs = 0; } if (minutes === 60) { minutes = 0; } return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`; }
         function pluralize(count, singular, plural = null) { return count === 1 ? singular : (plural || singular + 's'); }
 
+        // Google Sheets / Apps Script round-trips can turn real booleans into
+        // strings like "true"/"TRUE"/"1". Coerce leniently so flags such as
+        // isPursuitRace aren't silently reset to false on load.
+        function toBool(val) {
+            if (typeof val === 'boolean') return val;
+            if (typeof val === 'number') return val === 1;
+            if (typeof val === 'string') return ['true', 'TRUE', '1'].includes(val.trim());
+            return false;
+        }
+
         function setActiveTab(tabElement) {
              document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active-tab'));
              document.querySelectorAll('.tab-buttons button').forEach(btn => btn.classList.remove('active-button'));
@@ -5014,8 +5024,11 @@
 
          if (!oodRaceData || !oodRaceData.results) return 0;
 
+         // Pursuit races combine all boats into one group with no divisions,
+         // so skip the division filter entirely for them.
          const divResults = oodRaceData.results.filter(r =>
-             (r.sailNumber !== sailNo || r.skipper !== skipper) && String(r.division) == division
+             (r.sailNumber !== sailNo || r.skipper !== skipper) &&
+             (seriesData.isPursuitRace || String(r.division) == division)
          );
          const finishers = divResults.filter(r => r.status === 'finished');
          const nonOODEntries = divResults.filter(r => r.status !== 'OOD' && r.status !== '');
@@ -5482,12 +5495,12 @@
                             r.date = r.date || null;
                             return r;
                         });
-                        s.isShortCourse = typeof s.isShortCourse === 'boolean' ? s.isShortCourse : false;
-                        s.isPursuitRace = typeof s.isPursuitRace === 'boolean' ? s.isPursuitRace : false;
+                        s.isShortCourse = toBool(s.isShortCourse);
+                        s.isPursuitRace = toBool(s.isPursuitRace);
                         s.shortCourseSingleDiscardAfter5Races = false;
                         s.numberOfRaces = typeof s.numberOfRaces === 'number' ? s.numberOfRaces : (s.isShortCourse ? s.races.length : 0);
                         s.discardThreshold = typeof s.discardThreshold === 'number' ? s.discardThreshold : 0;
-                        s.isArchived = s.isArchived === true;
+                        s.isArchived = toBool(s.isArchived);
 
                         if (!s.isShortCourse) {
                             const expectedNumRaces = s.numberOfRaces || 0;
@@ -5687,12 +5700,12 @@
                             r.date = r.date || null;
                             return r;
                         });
-                        s.isShortCourse = typeof s.isShortCourse === 'boolean' ? s.isShortCourse : false;
-                        s.isPursuitRace = typeof s.isPursuitRace === 'boolean' ? s.isPursuitRace : false;
+                        s.isShortCourse = toBool(s.isShortCourse);
+                        s.isPursuitRace = toBool(s.isPursuitRace);
                         s.shortCourseSingleDiscardAfter5Races = false;
                         s.numberOfRaces = typeof s.numberOfRaces === 'number' ? s.numberOfRaces : (s.isShortCourse ? s.races.length : 0);
                         s.discardThreshold = typeof s.discardThreshold === 'number' ? s.discardThreshold : 0;
-                        s.isArchived = s.isArchived === true;
+                        s.isArchived = toBool(s.isArchived);
                          if (!s.isShortCourse) {
                             const expectedNumRaces = s.numberOfRaces || 0;
                             if (s.races.length !== expectedNumRaces) {
